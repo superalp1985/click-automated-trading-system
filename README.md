@@ -1,3 +1,4 @@
+Feel free to reach out if you have any questions! Follow my WeChat Official Account: CLINGYWANG and contact me via private message, or send an email to A2747597@163.com.
 # Automated Trading System
 
 A Python-based automated trading system that integrates with MetaTrader 5 (MT5) and uses local AI (Ollama) for decision-making.
