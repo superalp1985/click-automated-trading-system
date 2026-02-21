@@ -1,6 +1,62 @@
 Feel free to reach out if you have any questions! Follow my WeChat Official Account: CLINGYWANG and contact me via private message, or send an email to A2747597@163.com.
 # Automated Trading System
+# No API Fees! The People's Quant Revolution: One-Time Install, Lifetime Use, AI-Generated Strategies, Minute-Level Trading
 
+## 🚀 Project Overview
+This is a **game-changing AI-powered automated trading system** built for ordinary investors and small trading studios. It breaks down the high barriers of traditional quantitative trading: **no API fees, no recurring costs, one-time installation for lifetime use**.
+
+With local Ollama models (free) or online large models (for better performance), you only need to describe your trading idea in plain language—no coding, no quant knowledge required. The AI will generate, optimize, and execute strategies automatically.
+
+It runs smoothly on a regular home computer (8GB RAM is enough), works with all major trading software, and is optimized for **minute-level / 10-minute-level medium-low frequency trading**. It’s perfect for domestic futures/indices in China and overseas T+0 markets.
+
+## ✨ Core Advantages (Why This Is a Must-Have)
+
+### 1. No API Fees, One-Time Install = Lifetime Zero Cost
+- No more monthly/transaction-based API fees to exchanges or brokers.
+- One-time purchase, lifetime use, no hidden charges.
+- For medium-low frequency trading, your per-trade cost is effectively zero—far cheaper than any API-based system.
+
+### 2. AI-Generated Strategies: No Expertise Needed
+- Just tell the AI your trading idea (e.g., "Minute-level trend trading on rebar futures" or "Overseas T+0 buy-low-sell-high").
+- Use local Ollama models for free, or switch to online models for deeper analysis and optimization.
+- No Python, no financial modeling—AI does all the heavy lifting.
+
+### 3. Low Hardware & Software Requirements
+- Runs on a regular home computer (no need for expensive servers).
+- Works with all major trading software (no vendor lock-in).
+- 5-minute one-click setup, no technical skills required.
+
+### 4. Optimized for Medium-Low Frequency Trading
+- Avoids the high costs and risks of high-frequency trading.
+- Perfect for regular investors who want to automate without being glued to the screen.
+- Supports domestic futures/indices in China and overseas T+0 markets.
+
+### 5. Extensible & Adaptable
+- Can be deeply integrated with any trading software or platform.
+- Future-proof: ready to scale into a full quant ecosystem.
+
+## 🛠️ Quick Start (3 Steps)
+
+1.  **Download the installer** from the repository.
+2.  **Double-click `setup.iss`** to install the system.
+3.  **Launch the app**, type your trading idea, and start automated trading.
+
+## 📊 How It Compares
+
+| Feature | This System | Traditional API-Based Quant Tools | Copy Trading Services |
+|---------|-------------|-----------------------------------|-----------------------|
+| Cost | One-time fee, lifetime use, no API fees | Monthly/transaction-based API fees | High profit-sharing commissions |
+| Strategy Development | AI-generated from plain language | Requires Python/quant expertise | No strategy development, just follow others |
+| Hardware | Runs on a regular home computer | Requires professional servers | Low hardware, but no quant capabilities |
+| Trading Frequency | Optimized for minute-level / 10-minute-level | Optimized for high-frequency (only for institutions) | Passive, no control over frequency |
+| Privacy | All data and strategies run locally | Data shared with third-party APIs | Account and strategy data shared with platforms |
+
+## 📞 Get in Touch
+Feel free to reach out if you have any questions!  
+Follow my WeChat Official Account: **CLINGYWANG** and contact me via private message, or send an email to **A2747597@163.com**.
+
+## 📝 License
+This project is licensed under the MIT License.
 A Python-based automated trading system that integrates with MetaTrader 5 (MT5) and uses local AI (Ollama) for decision-making.
 
 ## Features
@@ -116,8 +172,8 @@ Access the web dashboard at: http://localhost:5000
 │   ├── start_manual.bat      # Recommended startup script
 │   └── start_trading_fixed.bat # Alternative startup
 ├── docs/
-│   ├── 安装指南.md           # Installation Guide (Chinese)
-│   └── 使用指南.md           # User Guide (Chinese)
+│   ├── Installation Guide.md           # Installation Guide (Chinese)
+│   └── User Guide.md           # User Guide (Chinese)
 └── output/
     └── TradingSystem_Setup_v*.exe # Windows Installer
 ```
