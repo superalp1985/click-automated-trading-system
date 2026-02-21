@@ -1,0 +1,153 @@
+有事可以微信公众号（王大粘之又甜又粘）留言：clingywang
+# 交易系统安装指南
+
+## 📋 安装前准备
+
+在使用本安装包之前，您需要先自行安装以下软件：
+
+### 1. MetaTrader 5 (MT5)
+- **下载地址**: https://www.metatrader5.com/
+- **要求**: 已开通模拟账户或真实账户
+- **说明**: 这是交易终端，您的交易策略将通过 MT5 执行
+
+### 2. Ollama (本地大模型运行平台)
+- **下载地址**: https://ollama.com/
+- **版本要求**: 建议最新版本
+- **需要下载的模型**: 根据 config.json 中的配置下载对应模型
+  - 常用模型: llama3, mistral, etc.
+- **说明**: Ollama 用于本地运行 AI 模型，无需联网即可使用
+
+### 3. Python 环境 (如果尚未安装)
+- **下载地址**: https://www.python.org/downloads/
+- **版本要求**: Python 3.10 或更高版本
+- **必须勾选**: "Add Python to PATH"
+
+### 4. 必需 Python 包
+安装以下 Python 包：
+```bash
+pip install openai metaTrader5 python-dotenv flask
+```
+
+---
+
+## 🖥️ 系统要求
+
+| 项目 | 最低要求 | 推荐配置 |
+|------|----------|----------|
+| 操作系统 | Windows 10/11 | Windows 11 |
+| 内存 | 8GB | 16GB+ |
+| 硬盘 | 5GB 可用空间 | 10GB+ |
+| 网络 | 稳定网络连接 | 稳定网络连接 |
+
+---
+
+## 📦 安装步骤
+
+### 第一步：运行安装程序
+1. 双击 `TradingSystem_Setup.exe`
+2. 选择安装目录（建议使用默认路径）
+3. 点击"安装"等待完成
+
+### 第二步：安装前置软件（如果尚未安装）
+按照"安装前准备"章节完成以下软件的安装：
+- [ ] MetaTrader 5
+- [ ] Ollama + AI模型
+- [ ] Python 3.10+
+- [ ] Python 依赖包
+
+### 第三步：配置系统
+1. 打开安装目录
+2. 编辑 `config.json` 文件，配置以下内容：
+   ```json
+   {
+     "mt5_login": "您的MT5账户",
+     "mt5_password": "您的MT5密码",
+     "mt5_server": "您的经纪商服务器",
+     "ollama_url": "http://localhost:11434",
+     "model": "您下载的模型名称"
+   }
+   ```
+
+### 第四步：启动系统
+两种启动方式：
+
+**方式一：手动启动（推荐）**
+```bash
+双击 start_manual.bat
+```
+
+**方式二：自动启动**
+```bash
+双击 start_trading_fixed.bat
+```
+
+---
+
+## ⚠️ 重要说明
+
+1. **本安装包不包含以下软件**：
+   - MetaTrader 5
+   - Ollama
+   - Python 环境
+   - AI 大模型
+   
+   这些需要您自行安装！
+
+2. **首次运行**：建议先运行一次测试，确保所有连接正常
+
+3. **安全提示**：
+   - 首次使用建议使用模拟账户
+   - config.json 中的密码是明文存储的，请注意保密
+   - 建议定期备份配置文件
+
+---
+
+## 🔧 目录结构
+
+安装后的目录结构：
+```
+TradingSystem/
+├── autogpt_trading.py      # 主程序
+├── executor_agent.py        # 执行器代理
+├── web_interface.py         # Web 界面
+├── config.json              # 配置文件
+├── mt5_positions.json      # MT5 按钮位置
+├── window_manager.py        # 窗口管理器
+├── start_manual.bat        # 手动启动脚本
+├── start_trading_fixed.bat # 修复版启动脚本
+├── templates/              # 按钮模板
+└── README.md              # 说明文档
+```
+
+---
+
+## ❓ 故障排除
+
+### MT5 连接失败
+- 检查 MT5 是否已登录
+- 确认 config.json 中的服务器地址正确
+
+### Ollama 连接失败
+- 确保 Ollama 正在运行
+- 检查 config.json 中的 ollama_url
+- 尝试访问 http://localhost:11434
+
+### Python 包缺失
+```bash
+pip install openai metaTrader5 python-dotenv flask
+```
+
+---
+
+## 📞 支持
+
+如遇问题，请检查：
+1. 所有前置软件是否正确安装
+2. 网络连接是否正常
+3. config.json 配置是否正确
+
+---
+
+*本安装包由 Automated Trading System Generator 生成*
+*版本: 1.0.0*
+*日期: 2026-02-21*

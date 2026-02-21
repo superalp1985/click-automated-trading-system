@@ -1,0 +1,191 @@
+If you have any questions or need support, you can follow my WeChat Official Account by searching for the ID:clingywang
+
+# Trading System User Guide
+
+## 🚀 Quick Start
+
+### Starting the System
+
+**Method 1: Desktop Shortcut (Recommended)**
+- Double-click **"一键启动交易系统"** (One-Click Start Trading System) on desktop
+- System will automatically start all components
+
+**Method 2: Manual Start**
+1. Open installation directory (default: `C:\Program Files\Automated Trading System`)
+2. Double-click `start_manual.bat`
+
+---
+
+## 📋 Operation Flow After Startup
+
+### Step 1: Confirm MT5 is Logged In
+- Ensure MetaTrader 5 is open
+- Logged into demo or live account
+- Chart window is open
+
+### Step 2: Wait for System Initialization
+- System will automatically:
+  - Connect to MT5
+  - Connect to Ollama AI
+  - Load configuration file
+  - Calibrate button positions
+
+### Step 3: Check Status via Web Interface
+- Open browser and visit: `http://localhost:5000`
+- You can view:
+  - Current positions
+  - Signal status
+  - AI decision logs
+
+---
+
+## 🎛️ Web Interface Features
+
+### Home Page (/)
+- Display system status
+- Real-time position information
+- Latest AI decisions
+
+### Main Features
+
+| Feature | Description |
+|---------|-------------|
+| Positions | View all current positions |
+| Signal Log | View AI-generated trading signals |
+| System Status | View MT5/Ollama connection status |
+
+---
+
+## ⚙️ Configuration
+
+### Config File Location
+- `config.json` in installation directory
+
+### Key Configuration Items
+
+```json
+{
+  "mt5_login": "123456",        // MT5 account ID
+  "mt5_password": "yourpass",   // MT5 password
+  "mt5_server": "Broker-Server", // Broker server
+  "ollama_url": "http://localhost:11434", // Ollama URL
+  "model": "llama3",           // AI model to use
+  "max_trades": 3,            // Max concurrent trades
+  "risk_level": "medium"      // Risk level: low/medium/high
+}
+```
+
+### Modifying Configuration
+1. Stop the system (close command window)
+2. Open `config.json` in Notepad
+3. Modify parameters
+4. Save file
+5. Restart system
+
+---
+
+## 🔧 Common Operations
+
+### Viewing Current Positions
+- MT5 Terminal → "Tools" → "Account History"
+- Or view in real-time via Web Interface
+
+### Manual Position Closing
+1. Right-click position in MT5
+2. Select "Close"
+3. Confirm closing
+
+### Stopping the System
+- Close the command window
+- Or press `Ctrl + C` in command window
+
+### Viewing Logs
+- Web Interface has real-time logs
+- Or check `logs` folder (if exists)
+
+---
+
+## ⚠️ Precautions
+
+### Security Tips
+1. **Use demo account for first-time testing**
+2. **Set reasonable stop loss and take profit**
+3. **Don't save real account passwords in plain text** - change password after testing
+4. **Test with small funds first**
+
+### Running Requirements
+1. **MT5 must stay logged in**
+2. **Ollama must stay running**
+3. **Stable network connection**
+4. **Don't let computer sleep or shutdown**
+
+### Risk Control
+- Set max_trades to limit concurrent positions
+- Set risk_level to control per-trade risk
+- Recommended to set Stop Loss (SL)
+
+---
+
+## 🔍 Troubleshooting
+
+### MT5 Connection Failed
+**Symptoms**: Web interface shows MT5 not connected
+
+**Solutions**:
+1. Check if MT5 is open
+2. Check if logged in
+3. Verify mt5_server in config.json
+4. Restart MT5 and trading system
+
+### Ollama Connection Failed
+**Symptoms**: Web interface shows AI not connected
+
+**Solutions**:
+1. Ensure Ollama is running (system tray)
+2. Check ollama_url in config.json
+3. Visit http://localhost:11434 to test
+4. Ensure model is downloaded: `ollama list`
+
+### Window Not Found
+**Symptoms**: Error "Button position not found"
+
+**Solutions**:
+1. Ensure MT5 window title is correct
+2. Recalibrate button positions (edit mt5_positions.json)
+3. Ensure MT5 window is in foreground
+
+### Slow Response
+**Cause**: AI model too large or insufficient PC specs
+
+**Solutions**:
+1. Use smaller model (e.g., mistral instead of llama3)
+2. Close unnecessary programs
+3. Increase computer RAM
+
+---
+
+## 📊 Monitoring Recommendations
+
+### Daily Monitoring
+- Check Web Interface status regularly
+- Check positions and P&L
+- Pay attention to news events (may affect AI decisions)
+
+### Emergency Handling
+1. Network disconnection → Check network, restart system
+2. MT5 frozen → Restart MT5
+3. Abnormal trades → Close positions manually immediately
+
+---
+
+## 📞 Getting Help
+
+If you encounter issues, check:
+1. ✅ All prerequisite software running correctly
+2. ✅ config.json configured correctly
+3. ✅ Network connection stable
+4. ✅ Check error messages in Web Interface
+
+---
+
+*Good luck with your trading!*

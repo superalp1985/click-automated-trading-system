@@ -1,0 +1,28 @@
+{
+  "trading_pair": "US30",
+  "lot_size": 0.1,
+  "monitoring_interval": 0.5,
+  "mode": "discussion",
+  "indicators": {
+    "ma5": false,
+    "ma10": false,
+    "ma20": false,
+    "ma50": false,
+    "ma200": false,
+    "ema9": true,
+    "ema12": false,
+    "ema21": true,
+    "ema26": false,
+    "rsi": true,
+    "macd": false,
+    "bollinger": false,
+    "atr": false
+  },
+  "long_strategy": "做多条件（同时满足） 1. 价格 ＞ 9EMA ＞ 21EMA 2. 当前K线成交量 ≥ 前3根均量的 150% 3. RSI 上穿 40 且 ＜ 70 4. 近3根K线无长上影，收盘在K线上半段",
+  "long_sl_percent": 0.3,
+  "long_tp_percent": 0.6,
+  "short_strategy": "做空条件（同时满足） 1. 价格 ＜ 9EMA ＜ 21EMA 2. 当前K线成交量 ≥ 前3根均量的 150% 3. RSI 下穿 60 且 ＞ 30 4. 近3根K线无长下影，收盘在K线下半段",
+  "short_sl_percent": 0.3,
+  "short_tp_percent": 0.6,
+  "rules": "No martingale"
+}
