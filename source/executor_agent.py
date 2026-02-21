@@ -11,6 +11,7 @@ import threading
 import pyautogui
 import numpy as np
 from datetime import datetime
+import requests
 
 # Try to import pyperclip for copy-paste
 try:
@@ -148,14 +149,26 @@ class ExecutorAgent:
             return False
 
     def log(self, message):
-        """Log message to file"""
+        """Log message to file and web interface"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_message = f"[{timestamp}] {message}"
         print(log_message)
+        
+        # Write to log file
         try:
             with open(LOG_FILE, 'a', encoding='utf-8') as f:
                 f.write(log_message + "\n")
         except:
+            pass
+        
+        # Also send to web interface logs
+        try:
+            requests.post('http://localhost:5000/save_log', 
+                         json={'type': 'log', 'message': message},
+                         timeout=1)
+        except:
+            # Web interface might not be running or not accessible
+            # Silently ignore errors to avoid disrupting trading
             pass
 
     def find_mt5_window(self):
@@ -255,7 +268,7 @@ class ExecutorAgent:
     def click_at(self, x, y):
         """Click at specific coordinates"""
         try:
-            self.activate_mt5_window()
+            # 不再激活MT5窗口，直接点击（假设MT5窗口已在前台）
             pyautogui.click(x, y)
             time.sleep(0.3)
             return True
@@ -356,18 +369,15 @@ class ExecutorAgent:
 
         pos = self.mt5_positions[pos_name]
 
-        # Activate MT5 window first
-        self.activate_mt5_window()
-
-        # Click at position
+        # 不再激活MT5窗口，直接点击（假设MT5窗口已在前台）
         pyautogui.click(pos['x'], pos['y'])
         time.sleep(0.3)
         return True
 
     def execute_buy(self, symbol, lot, stop_loss=None, take_profit=None, current_price=None, digits=5, stop_loss_is_percent=False, take_profit_is_percent=False):
         """Execute buy order - with strict timing rules"""
-        self.log(f"执行买入 - 止损: {stop_loss}, 止盈: {take_profit}, 当前价格: {current_price}")
-        self.log(f"止损是否为百分比: {stop_loss_is_percent}, 止盈是否为百分比: {take_profit_is_percent}")
+        self.log(f"🟢 执行买入操作 - 止损: {stop_loss}, 止盈: {take_profit}, 当前价格: {current_price}")
+        self.log(f"📊 价格类型 - 止损是否为百分比: {stop_loss_is_percent}, 止盈是否为百分比: {take_profit_is_percent}")
         
         # Calculate actual SL/TP prices from percentages
         sl_price = None
@@ -379,31 +389,28 @@ class ExecutorAgent:
                 if stop_loss_is_percent:
                     # Percentage-based: SL = current_price * (1 - X%)
                     sl_price = round(current_price * (1 - stop_loss/100), digits)
-                    self.log(f"计算止损价格(百分比{stop_loss}%): {current_price} * (1 - {stop_loss}/100) = {sl_price}")
+                    self.log(f"📐 计算止损价格(百分比{stop_loss}%): {current_price} * (1 - {stop_loss}/100) = {sl_price}")
                 else:
                     # Already actual price - use directly
                     sl_price = stop_loss
-                    self.log(f"使用实际止损价格: {sl_price}")
+                    self.log(f"📏 使用实际止损价格: {sl_price}")
             
             if take_profit is not None:
                 if take_profit_is_percent:
                     # Percentage-based: TP = current_price * (1 + X%)
                     tp_price = round(current_price * (1 + take_profit/100), digits)
-                    self.log(f"计算止盈价格(百分比{take_profit}%): {current_price} * (1 + {take_profit}/100) = {tp_price}")
+                    self.log(f"📐 计算止盈价格(百分比{take_profit}%): {current_price} * (1 + {take_profit}/100) = {tp_price}")
                 else:
                     # Already actual price - use directly
                     tp_price = take_profit
-                    self.log(f"使用实际止盈价格: {tp_price}")
+                    self.log(f"📏 使用实际止盈价格: {tp_price}")
         
         try:
-            # Activate MT5 window first
-            self.activate_mt5_window()
-            time.sleep(0.5)  # Rule 6: Switch window wait
-            
-            # Step 0: Press F9 to open order window
-            self.log("按F9打开订单窗口")
+            # 不再激活MT5窗口，直接按F9（假设MT5窗口已在前台）
+            self.log("⌨️ 步骤1: 按F9打开订单窗口...")
             pyautogui.press('f9')
-            time.sleep(0.8)  # 增加等待时间，确保订单窗口完全打开
+            time.sleep(0.8)  # 等待订单窗口完全打开
+            self.log("✅ 订单窗口已打开")
             
             # Step 1: Input stop loss price using copy+paste
             if sl_price is not None:
@@ -414,15 +421,14 @@ class ExecutorAgent:
                     # Copy price to clipboard and paste
                     if PYPERCLIP_AVAILABLE:
                         pyperclip.copy(str(sl_price))
+                        time.sleep(0.3)  # Rule 2: Activate input box wait
+                        pyautogui.hotkey('ctrl', 'v')
+                        time.sleep(0.2)  # Rule 3: Paste complete wait
                     else:
+                        # 直接输入，不使用剪贴板
                         pyautogui.typewrite(str(sl_price))
-                        time.sleep(0.05)
-                        self.log("警告: pyperclip未安装，使用typewrite")
-                        time.sleep(0.2)
-                        return self._execute_buy_fallback(sl_price, tp_price)
-                    time.sleep(0.3)  # Rule 2: Activate input box wait
-                    pyautogui.hotkey('ctrl', 'v')
-                    time.sleep(0.2)  # Rule 3: Paste complete wait
+                        time.sleep(0.3)  # 等待输入完成
+                        self.log("警告: pyperclip未安装，使用直接输入")
                 else:
                     self.log("警告: 止损输入框位置未校准，跳过止损设置")
             
@@ -437,15 +443,14 @@ class ExecutorAgent:
                     # Copy price to clipboard and paste
                     if PYPERCLIP_AVAILABLE:
                         pyperclip.copy(str(tp_price))
+                        time.sleep(0.3)  # Rule 2: Activate input box wait
+                        pyautogui.hotkey('ctrl', 'v')
+                        time.sleep(0.2)  # Rule 3: Paste complete wait
                     else:
+                        # 直接输入，不使用剪贴板
                         pyautogui.typewrite(str(tp_price))
-                        time.sleep(0.05)
-                        self.log("警告: pyperclip未安装，使用typewrite")
-                        time.sleep(0.2)
-                        return self._execute_buy_fallback(sl_price, tp_price)
-                    time.sleep(0.3)  # Rule 2: Activate input box wait
-                    pyautogui.hotkey('ctrl', 'v')
-                    time.sleep(0.2)  # Rule 3: Paste complete wait
+                        time.sleep(0.3)  # 等待输入完成
+                        self.log("警告: pyperclip未安装，使用直接输入")
                 else:
                     self.log("警告: 止盈输入框位置未校准，跳过止盈设置")
             
@@ -467,75 +472,48 @@ class ExecutorAgent:
         return False
         
     def execute_sell(self, symbol, lot, stop_loss=None, take_profit=None, current_price=None, digits=5, stop_loss_is_percent=False, take_profit_is_percent=False):
-        """Execute sell order - input lot first, then SL/TP, then click sell button"""
-        self.log(f"执行卖出 - 手数: {lot}, 止损: {stop_loss}, 止盈: {take_profit}, 当前价格: {current_price}")
-        self.log(f"止损是否为百分比: {stop_loss_is_percent}, 止盈是否为百分比: {take_profit_is_percent}")
+        """Execute sell order - 与买入相同的4步流程: 按F9, 输入止损, 输入止盈, 点击卖出按钮"""
+        self.log(f"🔴 执行卖出操作 - 止损: {stop_loss}, 止盈: {take_profit}, 当前价格: {current_price}")
+        self.log(f"📊 价格类型 - 止损是否为百分比: {stop_loss_is_percent}, 止盈是否为百分比: {take_profit_is_percent}")
 
-        # Calculate actual SL/TP prices from points or percentages
+        # 直接使用发过来的止损止盈价格，不重新计算
         sl_price = None
         tp_price = None
 
-        if current_price is not None and (stop_loss is not None or take_profit is not None):
-            # Calculate point size based on digits (for points-based calculation)
-            if digits == 5:
-                point_size = 0.00001
-            elif digits == 4:
-                point_size = 0.0001
-            elif digits == 3:
-                point_size = 0.001
-            else:
-                point_size = 0.00001
-
-            # For SELL: SL is above current price, TP is below current price
-            if stop_loss is not None:
-                if stop_loss_is_percent:
-                    # Percentage-based: SL = current_price * (1 + X%)
+        if stop_loss is not None:
+            if stop_loss_is_percent:
+                # 百分比: 需要计算实际价格
+                if current_price is not None and current_price > 0:
                     sl_price = round(current_price * (1 + stop_loss/100), digits)
-                    self.log(f"计算止损价格(百分比{stop_loss}%): {current_price} * (1 + {stop_loss}/100) = {sl_price}")
+                    self.log(f"📐 计算止损价格(百分比{stop_loss}%): {current_price} * (1 + {stop_loss}/100) = {sl_price}")
                 else:
-                    # Points-based: SL = current_price + (points * point_size)
-                    sl_price = round(current_price + (stop_loss * point_size), digits)
-                    self.log(f"计算止损价格(点数{stop_loss}): {current_price} + ({stop_loss} * {point_size}) = {sl_price}")
+                    self.log("❌ 无法计算止损价格: 当前价格无效")
+            else:
+                # 已经是实际价格: 直接使用
+                sl_price = stop_loss
+                self.log(f"📏 使用实际止损价格: {sl_price}")
 
-            if take_profit is not None:
-                if take_profit_is_percent:
-                    # Percentage-based: TP = current_price * (1 - X%)
+        if take_profit is not None:
+            if take_profit_is_percent:
+                # 百分比: 需要计算实际价格
+                if current_price is not None and current_price > 0:
                     tp_price = round(current_price * (1 - take_profit/100), digits)
-                    self.log(f"计算止盈价格(百分比{take_profit}%): {current_price} * (1 - {take_profit}/100) = {tp_price}")
+                    self.log(f"📐 计算止盈价格(百分比{take_profit}%): {current_price} * (1 - {take_profit}/100) = {tp_price}")
                 else:
-                    # Points-based: TP = current_price - (points * point_size)
-                    tp_price = round(current_price - (take_profit * point_size), digits)
-                    self.log(f"计算止盈价格(点数{take_profit}): {current_price} - ({take_profit} * {point_size}) = {tp_price}")
+                    self.log("❌ 无法计算止盈价格: 当前价格无效")
+            else:
+                # 已经是实际价格: 直接使用
+                tp_price = take_profit
+                self.log(f"📏 使用实际止盈价格: {tp_price}")
 
         try:
-            # Activate MT5 window first
-            self.activate_mt5_window()
-            time.sleep(0.5)  # Rule 6: Switch window wait
-            
-            # Step 0: Press F9 to open order window
-            self.log("按F9打开订单窗口")
+            # 不再激活MT5窗口，直接按F9（假设MT5窗口已在前台）
+            self.log("⌨️ 步骤1: 按F9打开订单窗口...")
             pyautogui.press('f9')
-            time.sleep(0.8)  # 增加等待时间，确保订单窗口完全打开
+            time.sleep(0.8)  # 等待订单窗口完全打开
+            self.log("✅ 订单窗口已打开")
             
-            # Step 1: Input lot size first
-            if lot is not None and lot > 0:
-                if "lot_input" in self.mt5_positions:
-                    self.log(f"输入交易量: {lot}")
-                    self.click_position("lot_input")
-                    time.sleep(0.2)
-                    # Clear and type new value
-                    pyautogui.hotkey('ctrl', 'a')
-                    time.sleep(0.1)
-                    pyautogui.press('backspace')
-                    time.sleep(0.1)
-                    # Format lot to 2 decimal places
-                    lot_str = f"{lot:.2f}"
-                    pyautogui.typewrite(lot_str)
-                    time.sleep(0.3)
-                else:
-                    self.log("警告: 交易量输入框位置未校准")
-
-            # Step 2: Input stop loss price
+            # Step 1: Input stop loss price
             if sl_price is not None:
                 if "sl_input" in self.mt5_positions:
                     self.log(f"输入止损价格: {sl_price}")
@@ -550,7 +528,7 @@ class ExecutorAgent:
                 else:
                     self.log("警告: 止损输入框位置未校准，跳过止损设置")
 
-            # Step 3: Input take profit price
+            # Step 2: Input take profit price
             if tp_price is not None:
                 if "tp_input" in self.mt5_positions:
                     self.log(f"输入止盈价格: {tp_price}")
@@ -565,17 +543,7 @@ class ExecutorAgent:
                 else:
                     self.log("警告: 止盈输入框位置未校准，跳过止盈设置")
 
-            # Step 4: Click the sell button
-            self.click_position("sell_btn")
-            time.sleep(0.3)
-            self.log("卖出订单已提交")
-            return True
-
-        except Exception as e:
-            self.log(f"卖出失败: {str(e)}")
-            return False
-
-            # Finally click the sell button
+            # Step 3: Click the sell button
             self.click_position("sell_btn")
             time.sleep(0.3)
             self.log("卖出订单已提交")
@@ -656,22 +624,31 @@ class ExecutorAgent:
             return False
 
         self.last_command = command
-        self.log(f"收到指令: {command}")
-        self.log(f"当前价格: {current_price}, 小数位数: {digits}")
+        self.log(f"🎯 开始执行交易指令: {command}")
+        self.log(f"💰 价格信息 - 当前价格: {current_price}, 小数位数: {digits}")
 
         cmd_type, symbol, lot, stop_loss, take_profit, stop_loss_is_percent, take_profit_is_percent = self.parse_command(command)
+        
+        # 记录解析结果
+        if cmd_type == "buy":
+            self.log(f"🟢 指令类型: 买入, 止损: {stop_loss}, 止盈: {take_profit}")
+        elif cmd_type == "sell":
+            self.log(f"🔴 指令类型: 卖出, 止损: {stop_loss}, 止盈: {take_profit}")
+        elif cmd_type == "none":
+            self.log("⚪ 指令类型: 待机")
+        else:
+            self.log(f"❓ 未知指令类型: {cmd_type}")
 
         if cmd_type == "buy":
-            # 执行买入操作
-            if not self.activate_mt5_window():
-                self.log("❌ 无法激活MT5窗口，放弃此次交易")
-                return False
-            
+            self.log("🟢 开始执行买入操作...")
+            # 执行买入操作（不再激活MT5窗口，直接按F9）
+            self.log("🔄 调用买入执行函数...")
             success = self.execute_buy(symbol, lot, stop_loss, take_profit, current_price, digits, stop_loss_is_percent, take_profit_is_percent)
             
             if success:
-                self.log("买入订单已提交，等待MT5 API验证...")
+                self.log("✅ 买入订单已提交，等待MT5 API验证...")
                 # 验证交易是否成功
+                self.log("🔍 验证MT5持仓状态...")
                 if self.check_mt5_positions():
                     self.log("✅ 交易验证成功：MT5账户确认新持仓")
                     return True
@@ -683,16 +660,15 @@ class ExecutorAgent:
                 return False
                 
         elif cmd_type == "sell":
-            # 执行卖出操作
-            if not self.activate_mt5_window():
-                self.log("❌ 无法激活MT5窗口，放弃此次交易")
-                return False
-            
+            self.log("🔴 开始执行卖出操作...")
+            # 执行卖出操作（不再激活MT5窗口，直接按F9）
+            self.log("🔄 调用卖出执行函数...")
             success = self.execute_sell(symbol, lot, stop_loss, take_profit, current_price, digits, stop_loss_is_percent, take_profit_is_percent)
             
             if success:
-                self.log("卖出订单已提交，等待MT5 API验证...")
+                self.log("✅ 卖出订单已提交，等待MT5 API验证...")
                 # 验证交易是否成功
+                self.log("🔍 验证MT5持仓状态...")
                 if self.check_mt5_positions():
                     self.log("✅ 交易验证成功：MT5账户确认新持仓")
                     return True
@@ -751,15 +727,27 @@ class ExecutorAgent:
 
                             if command:
                                 self.last_processed_command = command
-                                self.execute_command(command, current_price, digits)
+                                self.log(f"📥 检测到新交易指令: {command}")
+                                self.log(f"📊 价格信息: {price_info}")
+                                if current_price:
+                                    self.log(f"💰 当前价格: {current_price}, 小数位数: {digits}")
+                                
+                                # 执行命令
+                                result = self.execute_command(command, current_price, digits)
+                                
+                                if result:
+                                    self.log("✅ 交易执行成功")
+                                else:
+                                    self.log("❌ 交易执行失败")
                                 
                                 # Mark command as DONE
                                 try:
                                     with open(COMMANDS_FILE, 'w', encoding='utf-8') as wf:
                                         wf.write("DONE:" + command + "\n")
                                         wf.write(price_info + "\n")
+                                    self.log("📝 指令已标记为DONE")
                                 except Exception as e:
-                                    self.log(f"标记命令为DONE失败: {str(e)}")
+                                    self.log(f"❌ 标记命令为DONE失败: {str(e)}")
 
                 time.sleep(1)  # Check every second
 

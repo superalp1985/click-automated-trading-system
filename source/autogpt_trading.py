@@ -47,6 +47,7 @@ class AutoGPTTrading:
         self.monitoring_interval = 1  # seconds (supports float like 0.5)
         self.running = True
         self.mt5_connected = False
+        self.monitor_thread = None
         
         # Long/Short strategy configuration
         self.long_sl_percent = 0
@@ -56,6 +57,8 @@ class AutoGPTTrading:
         self.short_tp_percent = 0
         self.short_strategy = ""
         self.rules = ""  # Must-follow rules
+        self.timeframe = 1  # Timeframe for K-lines and indicators (in minutes)
+        self.max_positions = 1  # Maximum concurrent positions allowed
         
         # Indicator configuration
         self.indicators_config = {
@@ -81,6 +84,10 @@ class AutoGPTTrading:
         
         self.load_config()
         self.connect_mt5()
+        
+        # 启动后台标志检查线程
+        self.flag_check_thread = threading.Thread(target=self.check_flags_loop, daemon=True)
+        self.flag_check_thread.start()
     
     def connect_mt5(self):
         """Connect to MT5 terminal"""
@@ -110,6 +117,37 @@ class AutoGPTTrading:
             self.log(f"MT5连接错误: {str(e)}")
             self.mt5_connected = False
             return False
+    
+    def check_flags_loop(self):
+        """后台线程：检查监控标志文件"""
+        while self.running:
+            try:
+                # 检查启动监控标志
+                start_flag = "E:\\TradingSystem\\start_monitor.flag"
+                if os.path.exists(start_flag):
+                    self.log("检测到启动监控标志，切换到监控模式")
+                    self.set_mode("monitor")
+                    os.remove(start_flag)
+                
+                # 检查停止监控标志
+                stop_flag = "E:\\TradingSystem\\stop_monitor.flag"
+                if os.path.exists(stop_flag):
+                    self.log("检测到停止监控标志，切换到讨论模式")
+                    self.set_mode("discussion")
+                    os.remove(stop_flag)
+                
+                # 检查重新加载配置标志
+                reload_flag = "E:\\TradingSystem\\reload_config.flag"
+                if os.path.exists(reload_flag):
+                    self.log("检测到重新加载配置标志")
+                    self.load_config()
+                    self.log(f"配置已重新加载 - 交易品种: {self.trading_pair}, 手数: {self.lot_size}")
+                    os.remove(reload_flag)
+            except Exception as e:
+                self.log(f"标志检查错误: {e}")
+            
+            # 每2秒检查一次
+            time.sleep(2)
     
     def get_mt5_symbol_info(self, symbol):
         """Get symbol info from MT5"""
@@ -301,27 +339,39 @@ class AutoGPTTrading:
                     self.short_strategy = config.get('short_strategy', '')
                     self.rules = config.get('rules', '')
                     
-                    # Load indicator configuration
-                    self.indicators_config = config.get('indicators', {
-                        'enabled': True,
-                        'level2_enabled': True,
-                        'timeframe': 1,
-                        'candle_count': 200,
-                        'selected_indicators': {
-                            'ma5': True, 'ma10': True, 'ma20': True, 
-                            'ma50': True, 'ma200': False,
-                            'ema12': False, 'ema26': False,
-                            'rsi': True, 'macd': True, 
-                            'bollinger': True, 'atr': False
-                        },
-                        'signal_rules': {
-                            'require_ma_cross': True,
-                            'require_rsi_confirm': False,
-                            'require_macd_confirm': False,
-                            'rsi_oversold': 30,
-                            'rsi_overbought': 70
+                    # If strategy is empty but long/short strategies exist, create combined strategy
+                    if not self.strategy and (self.long_strategy or self.short_strategy):
+                        self.strategy = "长策略: " + (self.long_strategy if self.long_strategy else "未设置")
+                        self.strategy += " | 短策略: " + (self.short_strategy if self.short_strategy else "未设置")
+                    
+                    # Load indicator configuration - handle both formats
+                    raw_indicators = config.get('indicators', {})
+                    
+                    # Parse timeframe and max_positions from rules
+                    self.rules = config.get('rules', '')
+                    self._parse_rules(self.rules)
+                    
+                    # If raw_indicators has direct boolean values (like {"ma5": false, "rsi": true})
+                    # If raw_indicators has direct boolean values (like {"ma5": false, "rsi": true})
+                    # convert to the expected format
+                    if raw_indicators and 'enabled' not in raw_indicators:
+                        # Convert from {"ma5": false, "rsi": true} to selected_indicators format
+                        self.indicators_config = {
+                            'enabled': True,
+                            'level2_enabled': True,
+                            'timeframe': 1,
+                            'candle_count': 200,
+                            'selected_indicators': raw_indicators,  # Direct use of the indicator flags
+                            'signal_rules': {
+                                'require_ma_cross': True,
+                                'require_rsi_confirm': False,
+                                'require_macd_confirm': False,
+                                'rsi_oversold': 30,
+                                'rsi_overbought': 70
+                            }
                         }
-                    })
+                    else:
+                        self.indicators_config = raw_indicators
             except:
                 pass
     
@@ -366,6 +416,203 @@ class AutoGPTTrading:
         }
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
+    
+    def _parse_rules(self, rules_text):
+        """Parse all rules from rules text - supports both Chinese and English"""
+        import re
+        
+        # ========== Timeframe Parsing ==========
+        # Chinese: 1分钟, 5分钟, 15分钟, 1分钟级别, K线都是5分钟
+        # English: 1min, 5min, 15m, 1 minute, 5 minutes, timeframe 5
+        timeframe_patterns = [
+            # Chinese patterns
+            r'(\d+)\s*分钟',
+            r'(\d+)\s*分钟级别',
+            r'K线都是(\d+)分钟',
+            r'更高周期[：:\s]*(\d+)\s*分钟',
+            # English patterns
+            r'(\d+)\s*min(?:ute)?s?',
+            r'timeframe[：:\s]*(\d+)',
+            r'period[：:\s]*(\d+)',
+            r'higher timeframe[：:\s]*(\d+)'
+        ]
+        
+        for pattern in timeframe_patterns:
+            match = re.search(pattern, rules_text, re.IGNORECASE)
+            if match:
+                self.timeframe = int(match.group(1))
+                self.log(f"✓ 从规则中解析时间级别: {self.timeframe} 分钟")
+                break
+        else:
+            self.timeframe = 1
+        
+        # ========== Max Positions Parsing ==========
+        # Chinese: 最大持仓3单, 最多持有3单, 持仓同时最多持有2单, 最多3单
+        # English: max position 3, max positions 3, max orders 3, max 3 orders
+        max_pos_patterns = [
+            # Chinese patterns
+            r'最大持仓(\d+)单',
+            r'最多持有(\d+)单',
+            r'持仓同时最多持有(\d+)单',
+            r'最多(\d+)单',
+            r'持仓(\d+)单',
+            # English patterns
+            r'max(?:imum)?\s*position[s]?\s*(\d+)',
+            r'max(?:imum)?\s*order[s]?\s*(\d+)',
+            r'max\s+(\d+)\s*order[s]?',
+            r'position\s+limit\s*[：:\s]*(\d+)',
+            r'order\s+limit\s*[：:\s]*(\d+)'
+        ]
+        
+        for pattern in max_pos_patterns:
+            match = re.search(pattern, rules_text, re.IGNORECASE)
+            if match:
+                self.max_positions = int(match.group(1))
+                self.log(f"✓ 从规则中解析最大持仓数: {self.max_positions} 单")
+                break
+        else:
+            self.max_positions = 1
+        
+        # ========== Max Drawdown Rate ==========
+        # Chinese: 最大回撤率: 5%, 最大回撤: 5%
+        # English: max drawdown: 5%, max drawdown 5%, drawdown limit 5%
+        drawdown_patterns = [
+            r'最大回撤率[：:\s]*(\d+(?:\.\d+)?)\s*%',
+            r'最大回撤[：:\s]*(\d+(?:\.\d+)?)\s*%',
+            r'max\s*drawdown[：:\s]*(\d+(?:\.\d+)?)\s*%',
+            r'drawdown\s*limit[：:\s]*(\d+(?:\.\d+)?)\s*%'
+        ]
+        
+        for pattern in drawdown_patterns:
+            match = re.search(pattern, rules_text, re.IGNORECASE)
+            if match:
+                self.max_drawdown_percent = float(match.group(1))
+                self.log(f"✓ 从规则中解析最大回撤率: {self.max_drawdown_percent}%")
+                break
+        else:
+            self.max_drawdown_percent = None
+        
+        # ========== Daily Max Loss ==========
+        # Chinese: 每日最大亏损: 100, 每日亏损: 100
+        # English: daily max loss: 100, daily loss limit 100
+        daily_loss_patterns = [
+            r'每日最大亏损[：:\s]*(\d+(?:\.\d+)?)',
+            r'每日亏损[：:\s]*(\d+(?:\.\d+)?)',
+            r'daily\s*max\s*loss[：:\s]*(\d+(?:\.\d+)?)',
+            r'daily\s*loss[：:\s]*(\d+(?:\.\d+)?)',
+            r'loss\s*limit[：:\s]*(\d+(?:\.\d+)?)'
+        ]
+        
+        for pattern in daily_loss_patterns:
+            match = re.search(pattern, rules_text, re.IGNORECASE)
+            if match:
+                self.daily_max_loss = float(match.group(1))
+                self.log(f"✓ 从规则中解析每日最大亏损: {self.daily_max_loss}")
+                break
+        else:
+            self.daily_max_loss = None
+        
+        # ========== Trading Session ==========
+        # Chinese: 交易时段: 09:00-17:00
+        # English: trading session: 09:00-17:00, session: 09:00-17:00
+        session_patterns = [
+            r'交易时段[：:\s]*(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})',
+            r'trading\s*session[：:\s]*(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})',
+            r'session[：:\s]*(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})',
+            r'time\s*range[：:\s]*(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})'
+        ]
+        
+        for pattern in session_patterns:
+            match = re.search(pattern, rules_text, re.IGNORECASE)
+            if match:
+                self.trading_session_start = match.group(1)
+                self.trading_session_end = match.group(2)
+                self.log(f"✓ 从规则中解析交易时段: {self.trading_session_start} - {self.trading_session_end}")
+                break
+        else:
+            self.trading_session_start = None
+            self.trading_session_end = None
+        
+        # ========== Spread Limit ==========
+        # Chinese: 点差限制: 30点
+        # English: spread limit: 30, max spread 30
+        spread_patterns = [
+            r'点差限制[：:\s]*(\d+)\s*点?',
+            r'spread\s*limit[：:\s]*(\d+)',
+            r'max\s*spread[：:\s]*(\d+)',
+            r'spread[：:\s]*(\d+)'
+        ]
+        
+        for pattern in spread_patterns:
+            match = re.search(pattern, rules_text, re.IGNORECASE)
+            if match:
+                self.spread_limit = int(match.group(1))
+                self.log(f"✓ 从规则中解析点差限制: {self.spread_limit} 点")
+                break
+        else:
+            self.spread_limit = None
+        
+        # ========== Trailing Stop ==========
+        # Chinese: 移动止损: 激活0.5%, 距离0.3%
+        # English: trailing stop: activate 0.5%, distance 0.3%
+        trailing_patterns = [
+            r'移动止损[：:\s]*激活(\d+(?:\.\d+)?)\s*%[，,]\s*距离(\d+(?:\.\d+)?)\s*%',
+            r'trailing\s*stop[：:\s]*activate[sd]?(\d+(?:\.\d+)?)\s*%[，,]\s*distance(\d+(?:\.\d+)?)\s*%',
+            r'trailing\s*stop[：:\s]*(\d+(?:\.\d+)?)\s*%.*?(\d+(?:\.\d+)?)\s*%'
+        ]
+        
+        for pattern in trailing_patterns:
+            match = re.search(pattern, rules_text, re.IGNORECASE)
+            if match:
+                self.trailing_stop_activation = float(match.group(1))
+                self.trailing_stop_distance = float(match.group(2))
+                self.log(f"✓ 从规则中解析移动止损: 激活{self.trailing_stop_activation}%, 距离{self.trailing_stop_distance}%")
+                break
+        else:
+            self.trailing_stop_activation = None
+            self.trailing_stop_distance = None
+        
+        # ========== Partial Close ==========
+        # Chinese: 部分平仓: 0.3%, 50%
+        # English: partial close: 0.3%, 50%
+        partial_patterns = [
+            r'部分平仓[：:\s]*(\d+(?:\.\d+)?)\s*%[，,]\s*(\d+)\s*%',
+            r'partial\s*close[：:\s]*(\d+(?:\.\d+)?)\s*%[，,]\s*(\d+)\s*%',
+            r'take\s*partial\s*profit[：:\s]*(\d+(?:\.\d+)?)\s*%[，,]\s*(\d+)\s*%'
+        ]
+        
+        for pattern in partial_patterns:
+            match = re.search(pattern, rules_text, re.IGNORECASE)
+            if match:
+                self.partial_close_activation = float(match.group(1))
+                self.partial_close_percent = int(match.group(2))
+                self.log(f"✓ 从规则中解析部分平仓: 激活{self.partial_close_activation}%, 平仓{self.partial_close_percent}%")
+                break
+        else:
+            self.partial_close_activation = None
+            self.partial_close_percent = None
+        
+        # ========== Close All Hotkey ==========
+        # Chinese: 平仓热键: ctrl+shift+c
+        # English: close hotkey: ctrl+shift+c, close all key: ctrl+shift+c
+        hotkey_patterns = [
+            r'平仓热键[：:\s]*([a-zA-Z+\^]+(?:\+[a-zA-Z]+)+)',
+            r'close\s*(?:all)?\s*hotkey[：:\s]*([a-zA-Z+\^]+(?:\+[a-zA-Z]+)+)',
+            r'hotkey[：:\s]*([a-zA-Z+\^]+(?:\+[a-zA-Z]+)+)'
+        ]
+        
+        for pattern in hotkey_patterns:
+            match = re.search(pattern, rules_text, re.IGNORECASE)
+            if match:
+                self.close_hotkey = match.group(1).lower()
+                self.log(f"✓ 从规则中解析平仓热键: {self.close_hotkey}")
+                break
+        else:
+            self.close_hotkey = None
+        
+        # Also update indicators_config with the parsed timeframe
+        if hasattr(self, 'indicators_config') and self.indicators_config:
+            self.indicators_config['timeframe'] = self.timeframe
             
     def auto_configure_from_context(self):
         """Auto-detect and configure trading parameters from conversation context"""
@@ -437,14 +684,74 @@ class AutoGPTTrading:
             return f"自动配置出错: {str(e)}，请手动设置配置。"
             
     def log(self, message):
-        """Log message to file"""
+        """Log message to file and web interface"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_message = f"[{timestamp}] {message}"
         print(log_message)
+        
+        # Write to log file
         try:
             with open(LOG_FILE, 'a', encoding='utf-8') as f:
                 f.write(log_message + "\n")
         except:
+            pass
+        
+        # Also send to web interface logs
+        try:
+            requests.post('http://localhost:5000/save_log', 
+                         json={'type': 'log', 'message': message},
+                         timeout=1)
+        except:
+            # Web interface might not be running or not accessible
+            # Silently ignore errors to avoid disrupting trading
+            pass
+    
+    def _check_log_rotation(self):
+        """Check if log rotation is needed and perform rotation if necessary"""
+        import shutil
+        
+        LOG_DIR = "E:\\TradingSystem\\logs"
+        MAX_LOG_SIZE = 10 * 1024 * 1024  # 10MB
+        
+        try:
+            # Create logs directory if it doesn't exist
+            if not os.path.exists(LOG_DIR):
+                os.makedirs(LOG_DIR)
+            
+            # Check if log file exists
+            if not os.path.exists(LOG_FILE):
+                return
+            
+            # Get log file size and modification time
+            log_size = os.path.getsize(LOG_FILE)
+            log_mtime = datetime.fromtimestamp(os.path.getmtime(LOG_FILE))
+            today = datetime.now().date()
+            
+            # Check if rotation is needed (size > 10MB or new day)
+            need_rotation = False
+            
+            if log_size > MAX_LOG_SIZE:
+                self.log(f"日志文件超过 {MAX_LOG_SIZE // (1024*1024)}MB，准备轮转...")
+                need_rotation = True
+            elif log_mtime.date() < today:
+                self.log(f"新的一天到来，日志文件准备轮转...")
+                need_rotation = True
+            
+            if need_rotation:
+                # Generate timestamp for old log file
+                timestamp_str = log_mtime.strftime("%Y%m%d_%H%M%S")
+                log_filename = os.path.basename(LOG_FILE)
+                old_log_name = f"{log_filename.replace('.log', '')}_{timestamp_str}.log"
+                old_log_path = os.path.join(LOG_DIR, old_log_name)
+                
+                # Move old log to logs directory
+                try:
+                    shutil.move(LOG_FILE, old_log_path)
+                    self.log(f"旧日志已保存到: {old_log_path}")
+                except Exception as e:
+                    self.log(f"移动日志文件失败: {str(e)}")
+        except Exception as e:
+            # Silently ignore errors to avoid disrupting trading
             pass
             
     def call_ollama(self, prompt, system_prompt=None):
@@ -1133,7 +1440,7 @@ class AutoGPTTrading:
         analysis_prompt = f"""
 你是一个专业的外汇交易分析师。根据以下市场数据和分析策略，判断是否应该交易。
 
-【重要】你必须严格按照下方配置的策略和价格来判断，不得自行决定其他数值！
+【警告】你必须【逐条检查】下方的策略条件，只有【全部满足】时才可下单！
 
 交易品种: {self.trading_pair}
 当前价格: {current_price}
@@ -1142,21 +1449,32 @@ class AutoGPTTrading:
 小数位数: {digits}位
 点差: {market_data.get('spread', 'N/A')}点
 {indicator_info}{level2_info}
-【做多策略】(必须严格遵守): {long_strategy_text}
+【做多策略】(必须逐条检查，全部满足才可做多):
+{long_strategy_text}
+【重要】必须同时满足以上所有条件才可做多，任何一条不满足都必须待机！
+
 【做多止损比例】: {long_sl}% (价格 × (1 - {long_sl}%))
 【做多止盈比例】: {long_tp}% (价格 × (1 + {long_tp}%))
 
-【做空策略】(必须严格遵守): {short_strategy_text}
+【做空策略】(必须逐条检查，全部满足才可做空):
+{short_strategy_text}
+【重要】必须同时满足以上所有条件才可做空，任何一条不满足都必须待机！
+
 【做空止损比例】: {short_sl}% (价格 × (1 + {short_sl}%))
 【做空止盈比例】: {short_tp}% (价格 × (1 - {short_tp}%))
 
 {price_info}
-【必须遵守规则】(必须严格遵守): {rules_text}
+【必须遵守规则】: {rules_text}
 
-【重要】请严格按照以下格式输出交易指令（只输出指令，不要其他内容）：
-- 如果决定做多，输出: 做多 止损{long_sl_price if long_sl_price is not None else '无'} 止盈{long_tp_price if long_tp_price is not None else '无'}
-- 如果决定做空，输出: 做空 止损{short_sl_price if short_sl_price is not None else '无'} 止盈{short_tp_price if short_tp_price is not None else '无'}
-- 如果不执行任何操作，输出: 待机
+【决策流程】（必须按此流程）:
+1. 逐条检查做多策略条件 → 如果全部满足 → 做多
+2. 逐条检查做空策略条件 → 如果全部满足 → 做空
+3. 任何条件不满足 → 待机
+
+【输出格式】（只输出以下三种之一，不要其他内容）：
+- 做多 止损{long_sl_price if long_sl_price is not None else '无'} 止盈{long_tp_price if long_tp_price is not None else '无'}
+- 做空 止损{short_sl_price if short_sl_price is not None else '无'} 止盈{short_tp_price if short_tp_price is not None else '无'}
+- 待机
 
 注意：止损和止盈后面必须是计算好的具体价格数值，不是百分比！Executor会直接复制这些数值到MT5。
 
@@ -1193,15 +1511,25 @@ class AutoGPTTrading:
         short_tp_price_str = f"{short_tp_price}" if short_tp_price is not None else "无"
         
         system_prompt = f"""你是一个专业的外汇交易分析师。
-【重要规则】
-- 必须严格按照配置的策略和计算好的价格来判断
-- 不得自行决定止损止盈数值，必须使用已计算好的价格
-- 做多时使用做多策略和做多价格
-- 做空时使用做空策略和做空价格
-- 必须根据Python程序计算的技术信号来判断交易机会{system_indicator_info}
-- 【严禁输出平仓指令】系统只等待止盈或止损，不主动平仓
+【严格遵守规则 - 违反以下规则将导致错误交易】
+1. 必须【逐条检查】配置的做多/做空策略条件，只有【全部满足】时才可下单
+2. 不得自行决定止损止盈数值，【必须】使用已计算好的价格
+3. 做多时【必须】使用做多策略和做多价格，做空时【必须】使用做空策略和做空价格
+4. 必须根据Python程序计算的技术信号来判断，【严禁】凭感觉或猜测下单
+5. 【严禁输出平仓指令】系统只等待止盈或止损，不主动平仓
+6. 如果策略条件【任何一条】不满足，【必须】输出"待机"
 
-当前配置:
+【策略检查清单】（做多时）:
+{long_strategy_text}
+→ 逐条检查上述条件，全部满足才可做多，否则必须待机
+
+【策略检查清单】（做空时）:
+{short_strategy_text}
+→ 逐条检查上述条件，全部满足才可做空，否则必须待机
+
+{system_indicator_info}
+
+当前配置（必须严格遵守）:
 - 做多策略: {long_strategy_text}
 - 做多止损价格: {long_sl_price_str} (基于{long_sl}%计算)
 - 做多止盈价格: {long_tp_price_str} (基于{long_tp}%计算)
@@ -1311,37 +1639,45 @@ class AutoGPTTrading:
         return sl_price, tp_price
     
     def send_command_to_executor(self, command):
-        """Send command to executor agent with calculated SL/TP prices"""
+        """Send command to executor agent - 直接发送命令，不重新计算价格"""
         if command:
             self.log(f"发送交易指令: {command}")
             try:
-                # Get current price and digits
+                # Get current price and digits for reference
                 current_price = getattr(self, '_current_price', 0)
                 digits = getattr(self, '_current_digits', 5)
                 
-                # Calculate SL and TP prices
-                sl_price, tp_price = self.calculate_sl_tp_prices(command, current_price, digits)
+                # 如果命令中已经有实际价格（没有%符号），直接发送，不重新计算
+                # 检查命令中是否有%符号
+                has_percent = '%' in command
                 
-                # Format command with calculated prices
-                if sl_price is not None and tp_price is not None:
-                    # Replace percentage with actual prices in command
-                    import re
-                    # Remove percentage indicators and keep space
-                    command_with_prices = re.sub(r'止损\s*\d+(?:\.\d+)?\s*%?', f'止损 {sl_price}', command)
-                    command_with_prices = re.sub(r'止盈\s*\d+(?:\.\d+)?\s*%?', f'止盈 {tp_price}', command_with_prices)
+                if has_percent:
+                    # 如果命令中有%符号，需要计算实际价格
+                    self.log("命令中包含百分比，需要计算实际价格...")
+                    sl_price, tp_price = self.calculate_sl_tp_prices(command, current_price, digits)
                     
-                    self.log(f"计算后的价格 - 止损: {sl_price}, 止盈: {tp_price}")
-                    command_to_send = command_with_prices
+                    if sl_price is not None and tp_price is not None:
+                        # 替换百分比为实际价格
+                        import re
+                        command_with_prices = re.sub(r'止损\s*\d+(?:\.\d+)?\s*%', f'止损 {sl_price}', command)
+                        command_with_prices = re.sub(r'止盈\s*\d+(?:\.\d+)?\s*%', f'止盈 {tp_price}', command_with_prices)
+                        command_to_send = command_with_prices
+                        self.log(f"计算后的价格 - 止损: {sl_price}, 止盈: {tp_price}")
+                    else:
+                        command_to_send = command
+                        self.log("警告: 无法计算止损止盈价格，发送原始命令")
                 else:
-                    # Keep original command if can't calculate
+                    # 命令中没有%符号，已经是实际价格，直接发送
                     command_to_send = command
-                    self.log("警告: 无法计算止损止盈价格，发送原始命令")
+                    self.log("命令中已经是实际价格，直接发送")
                 
-                # Send price info for reference
+                # Send price info for reference (包含当前价格和小数位数)
                 price_info = f"@price={current_price}@digits={digits}"
-                if sl_price is not None:
+                
+                # 如果已经计算了实际价格，也发送给executor作为参考
+                if 'sl_price' in locals() and sl_price is not None:
                     price_info += f"@sl={sl_price}"
-                if tp_price is not None:
+                if 'tp_price' in locals() and tp_price is not None:
                     price_info += f"@tp={tp_price}"
                 
                 with open(COMMANDS_FILE, 'w', encoding='utf-8') as f:
@@ -1354,33 +1690,81 @@ class AutoGPTTrading:
         
     def monitor_loop(self):
         """Main monitoring loop"""
+        # 每次扫描时记录当前配置（帮助调试）
         self.log(f"开始自动盯盘模式 - 交易品种: {self.trading_pair}, 手数: {self.lot_size}")
+        self.log(f"📋 当前配置 - 止损: 多{self.long_sl_percent}%/空{self.short_sl_percent}%, 止盈: 多{self.long_tp_percent}%/空{self.short_tp_percent}%")
+        self.log(f"📈 时间级别: {self.timeframe}分钟, 最大持仓: {self.max_positions}单")
+        
+        # 获取并记录启用的指标
+        selected_indicators = self.indicators_config.get('selected_indicators', {})
+        enabled_indicators = [k for k, v in selected_indicators.items() if v]
+        self.log(f"📊 启用指标: {enabled_indicators}")
+        self.log(f"📜 规则: {self.rules}")
         
         while self.running and self.mode == "monitor":
             try:
+                # ========== 扫描开始 ==========
+                scan_time = datetime.now().strftime("%H:%M:%S")
+                self.log(f"📡 开始扫描 - 时间: {scan_time}, 品种: {self.trading_pair}")
+                
                 # Get market data
+                self.log("🔍 获取市场数据...")
                 market_data = self.search_market_data(self.trading_pair)
+                
+                # 检查是否仍处于监控模式
+                if self.mode != "monitor":
+                    self.log("监控模式已切换，停止当前扫描")
+                    break
+                
+                if market_data and 'price' in market_data and market_data['price'] > 0:
+                    self.log(f"📊 市场数据获取成功 - 价格: {market_data['price']}, 时间: {market_data.get('timestamp', 'N/A')}")
+                else:
+                    self.log("⚠️ 市场数据获取失败或价格无效")
                 
                 # Save to cache
                 with open(MARKET_DATA_CACHE, 'w', encoding='utf-8') as f:
                     json.dump(market_data, f, indent=2, ensure_ascii=False)
                 
-                # Analyze and get trading signal
+                # ========== 分析开始 ==========
+                self.log("🧠 开始技术分析...")
                 response = self.analyze_market(market_data)
                 
+                # 检查是否仍处于监控模式
+                if self.mode != "monitor":
+                    self.log("监控模式已切换，停止当前扫描")
+                    break
+                
                 if response:
-                    self.log(f"AI分析结果: {response}")
+                    self.log(f"✅ AI分析完成 - 结果: {response}")
                     
                     # Parse command
                     command = self.parse_command(response)
                     
                     if command:
-                        # Send to executor
-                        self.send_command_to_executor(command)
+                        # 检查是否仍处于监控模式
+                        if self.mode != "monitor":
+                            self.log("监控模式已切换，取消发送指令")
+                            break
+                        
+                        # ========== 检查最大持仓数限制 ==========
+                        current_positions = self.get_mt5_positions()
+                        position_count = len(current_positions)
+                        
+                        if position_count >= self.max_positions:
+                            self.log(f"⚠️ 持仓数已达上限: {position_count}/{self.max_positions} 单，需等待平仓后才能开新单")
+                            # 不发送交易指令，等待下次扫描
+                        else:
+                            # ========== 发送指令 ==========
+                            self.log(f"🚀 发送交易指令: {command}")
+                            self.send_command_to_executor(command)
+                            self.log("📤 指令已发送到Executor")
                     else:
-                        self.log("未识别到有效交易指令")
+                        self.log("⚠️ 未识别到有效交易指令")
                 else:
-                    self.log("分析失败")
+                    self.log("❌ 分析失败")
+                
+                # ========== 扫描完成 ==========
+                self.log(f"✅ 扫描完成 - 等待下次扫描 ({self.monitoring_interval}秒后)")
                     
                 # Wait for next check (supports float intervals like 0.5 seconds)
                 if not self.running:
@@ -1388,18 +1772,46 @@ class AutoGPTTrading:
                 time.sleep(self.monitoring_interval)
                     
             except Exception as e:
-                self.log(f"监控循环错误: {str(e)}")
+                self.log(f"❌ 监控循环错误: {str(e)}")
                 time.sleep(10)
                 
     def set_mode(self, mode):
         """Set the working mode"""
         if mode == "monitor":
-            if not self.trading_pair or not self.strategy:
-                self.log("错误: 请先设置交易品种和策略")
+            # 重新加载配置，确保使用最新设置（包括交易品种、指标、规则等）
+            self.log("重新加载配置...")
+            self.load_config()
+            self.log(f"已加载最新配置 - 交易品种: {self.trading_pair}, 指标: {list(self.indicators_config.get('selected_indicators', {}).keys())}")
+            self.log(f"止损止盈配置 - 长止损:{self.long_sl_percent}%, 长止盈:{self.long_tp_percent}%, 短止损:{self.short_sl_percent}%, 短止盈:{self.short_tp_percent}%")
+            self.log(f"规则: {self.rules}")
+            
+            # 检查交易品种和策略配置
+            if not self.trading_pair:
+                self.log("错误: 请先设置交易品种")
                 return False
+            
+            # 检查是否有策略配置（长策略或短策略）
+            if not self.long_strategy and not self.short_strategy:
+                self.log("错误: 请先设置长策略或短策略")
+                self.log(f"当前长策略: {'已设置' if self.long_strategy else '未设置'}")
+                self.log(f"当前短策略: {'已设置' if self.short_strategy else '未设置'}")
+                return False
+                
             self.mode = "monitor"
             self.save_config()
             self.log("切换到自动盯盘模式")
+            self.log(f"交易品种: {self.trading_pair}")
+            self.log(f"长策略: {'已设置' if self.long_strategy else '未设置'}")
+            self.log(f"短策略: {'已设置' if self.short_strategy else '未设置'}")
+            
+            # 启动监控线程（如果未在运行）
+            if self.monitor_thread is None or not self.monitor_thread.is_alive():
+                self.monitor_thread = threading.Thread(target=self.monitor_loop, daemon=True)
+                self.monitor_thread.start()
+                self.log("监控线程已启动")
+            else:
+                self.log("监控线程已在运行")
+                
         else:
             self.mode = "discussion"
             self.running = True
@@ -1413,10 +1825,6 @@ class AutoGPTTrading:
         
         if user_input == "策略固定，开始盯盘":
             if self.set_mode("monitor"):
-                # Start monitoring in background thread
-                monitor_thread = threading.Thread(target=self.monitor_loop)
-                monitor_thread.daemon = True
-                monitor_thread.start()
                 return "好的，策略已固定，开始自动盯盘模式。监控线程已启动。"
             else:
                 return "错误: 请先设置交易品种和策略"
@@ -1497,6 +1905,48 @@ class AutoGPTTrading:
         self.running = False
         self.mode = "discussion"
         self.save_config()
+        
+        # Perform log rotation when exiting
+        self._rotate_log_on_exit()
+    
+    def _rotate_log_on_exit(self):
+        """Rotate log file when the application exits"""
+        import shutil
+        
+        LOG_DIR = "E:\\TradingSystem\\logs"
+        
+        try:
+            # Create logs directory if it doesn't exist
+            if not os.path.exists(LOG_DIR):
+                os.makedirs(LOG_DIR)
+            
+            # Check if log file exists
+            if not os.path.exists(LOG_FILE):
+                return
+            
+            # Get log file info
+            log_size = os.path.getsize(LOG_FILE)
+            log_mtime = datetime.fromtimestamp(os.path.getmtime(LOG_FILE))
+            
+            # Only rotate if log file has content or is from a previous day
+            today = datetime.now().date()
+            
+            if log_size > 0 or log_mtime.date() < today:
+                # Generate timestamp for old log file
+                timestamp_str = log_mtime.strftime("%Y%m%d_%H%M%S")
+                log_filename = os.path.basename(LOG_FILE)
+                old_log_name = f"{log_filename.replace('.log', '')}_{timestamp_str}.log"
+                old_log_path = os.path.join(LOG_DIR, old_log_name)
+                
+                # Move old log to logs directory
+                try:
+                    shutil.move(LOG_FILE, old_log_path)
+                    print(f"[LOG] 旧日志已保存到: {old_log_path}")
+                except Exception as e:
+                    print(f"[LOG] 移动日志文件失败: {str(e)}")
+        except Exception as e:
+            # Silently ignore errors during exit
+            pass
 
 def main():
     """Main entry point"""
@@ -1537,12 +1987,22 @@ def main():
     print("  退出              - 退出程序")
     print("-" * 50)
     
-    # If in monitor mode, start monitoring
+    # 无论config.json中设置什么模式，始终以讨论模式启动
+    # 等待用户通过Web界面或命令行控制
     if bot.mode == "monitor":
-        print("检测到之前处于监控模式，正在启动监控...")
-        monitor_thread = threading.Thread(target=bot.monitor_loop)
-        monitor_thread.daemon = True
-        monitor_thread.start()
+        print("注意: config.json中模式为'monitor'，已重置为'discussion'")
+        print("请通过Web界面重新启动监控模式")
+        bot.mode = "discussion"
+        bot.save_config()
+    
+    # Interactive mode (discussion)
+    print("当前处于交互模式，可通过以下方式启动自动交易:")
+    print("  1. 在Web界面中点击 'Start Monitor' 按钮 (推荐)")
+    print("  2. 或在此输入: '策略固定，开始盯盘'")
+    print("  3. 或输入: '查看配置' 检查当前设置")
+    print("-" * 50)
+    print("提示: 监控启动后，此窗口仍可接受命令（如'退出'）")
+    print("-" * 50)
     
     # Interactive loop
     while True:

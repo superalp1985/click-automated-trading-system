@@ -5,6 +5,7 @@ AutoGPT Trading Web Interface - Full Features
 
 from flask import Flask, render_template_string, request, jsonify
 import json
+import os
 from datetime import datetime
 
 app = Flask(__name__)
@@ -34,7 +35,7 @@ HTML = '''<!DOCTYPE html>
         button:hover { background: #00a8cc; }
         button.success { background: #28a745; color: #fff; }
         button.danger { background: #dc3545; color: #fff; }
-        .log-container { background: #0f3460; padding: 15px; height: 300px; overflow-y: auto; border-radius: 5px; font-family: monospace; font-size: 12px; }
+        .log-container { background: #0f3460; padding: 15px; height: 300px; overflow-y: auto; border-radius: 5px; font-family: monospace; font-size: 12px; scroll-behavior: smooth; }
         .log-entry { margin: 3px 0; color: #00ff88; }
         .chat-messages { background: #0f3460; padding: 15px; height: 180px; overflow-y: auto; border-radius: 5px; }
         .chat-msg { margin: 5px 0; }
@@ -135,6 +136,7 @@ HTML = '''<!DOCTYPE html>
             <textarea id="rules" rows="2" placeholder="e.g., No martingale"></textarea>
             
             <button onclick="saveConfig()">Save Config</button>
+            <button onclick="reloadConfig()">Reload Config</button>
             <button onclick="testData()">Test Data</button>
             <div id="test-result" class="test-result"></div>
         </div>
@@ -195,6 +197,17 @@ HTML = '''<!DOCTYPE html>
             }).then(function(r){return r.json()}).then(function(data){
                 document.getElementById('test-result').innerHTML = 'Config saved!';
                 addLog('[System] Config saved - Strictly following');
+            });
+        }
+        
+        function reloadConfig() {
+            fetch('/reload_config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            }).then(function(r){return r.json()}).then(function(data){
+                document.getElementById('test-result').innerHTML = data.message || 'Config reloaded!';
+                addLog('[System] Config reloaded - ' + (data.message || 'Success'));
+                loadConfig(); // Refresh the displayed config
             });
         }
         
@@ -370,11 +383,17 @@ HTML = '''<!DOCTYPE html>
         }
         
         function startMonitor() {
-            fetch('/start_monitor', {method:'POST'}).then(function(r){return r.json()}).then(function(d){addLog('[System] Monitor started');});
+            fetch('/start_monitor', {method:'POST'}).then(function(r){return r.json()}).then(function(d){
+                addLog('[System] Monitor started');
+                document.getElementById('mode').value = 'monitor';
+            });
         }
         
         function stopMonitor() {
-            fetch('/stop_monitor', {method:'POST'}).then(function(r){return r.json()}).then(function(d){addLog('[System] Monitor stopped');});
+            fetch('/stop_monitor', {method:'POST'}).then(function(r){return r.json()}).then(function(d){
+                addLog('[System] Monitor stopped');
+                document.getElementById('mode').value = 'discussion';
+            });
         }
         
         function addChat(sender, msg) {
@@ -390,8 +409,12 @@ HTML = '''<!DOCTYPE html>
             var div = document.createElement('div');
             div.className = 'log-entry';
             div.textContent = msg;
-            document.getElementById('log-container').appendChild(div);
-            document.getElementById('log-container').scrollTop = document.getElementById('log-container').scrollHeight;
+            var container = document.getElementById('log-container');
+            container.appendChild(div);
+            // 使用setTimeout确保在DOM更新后滚动到底部
+            setTimeout(function() {
+                container.scrollTop = container.scrollHeight;
+            }, 0);
             fetch('/save_log', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'log', message:msg})});
         }
         
@@ -440,6 +463,10 @@ HTML = '''<!DOCTYPE html>
                             div.textContent = l.message;
                             container.appendChild(div);
                         });
+                        // 滚动到最新日志
+                        setTimeout(function() {
+                            container.scrollTop = container.scrollHeight;
+                        }, 0);
                     }
                 });
             }, 3000);
@@ -452,6 +479,11 @@ HTML = '''<!DOCTYPE html>
 @app.route('/')
 def index():
     return render_template_string(HTML)
+
+@app.route('/favicon.ico')
+def favicon():
+    # Return empty response to avoid 404 errors
+    return '', 204
 
 @app.route('/save_config', methods=['POST'])
 def save_config():
@@ -720,11 +752,72 @@ Please provide a helpful response about forex trading. Keep it concise."""
 
 @app.route('/start_monitor', methods=['POST'])
 def start_monitor():
-    return jsonify({'ok': True})
+    try:
+        # 更新config.json中的mode为monitor
+        config_path = 'E:\\TradingSystem\\config.json'
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            config['mode'] = 'monitor'
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+            
+            # 创建监控标志文件，通知autogpt_trading.py
+            flag_path = 'E:\\TradingSystem\\start_monitor.flag'
+            with open(flag_path, 'w', encoding='utf-8') as f:
+                f.write(str(datetime.now().isoformat()))
+            
+            print(f"[WEB] 监控模式已启用 - {datetime.now()}")
+            return jsonify({'ok': True, 'message': '监控模式已启动'})
+        else:
+            return jsonify({'error': 'config.json not found'})
+    except Exception as e:
+        return jsonify({'error': str(e)})
 
 @app.route('/stop_monitor', methods=['POST'])
 def stop_monitor():
-    return jsonify({'ok': True})
+    try:
+        # 更新config.json中的mode为discussion
+        config_path = 'E:\\TradingSystem\\config.json'
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            config['mode'] = 'discussion'
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+            
+            # 创建停止标志文件
+            flag_path = 'E:\\TradingSystem\\stop_monitor.flag'
+            with open(flag_path, 'w', encoding='utf-8') as f:
+                f.write(str(datetime.now().isoformat()))
+            
+            print(f"[WEB] 监控模式已停止 - {datetime.now()}")
+            return jsonify({'ok': True, 'message': '监控模式已停止'})
+        else:
+            return jsonify({'error': 'config.json not found'})
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+@app.route('/reload_config', methods=['POST'])
+def reload_config():
+    """Reload config from config.json and notify AutoGPT to reload"""
+    try:
+        config_path = 'E:\\TradingSystem\\config.json'
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            
+            # 创建重新加载标志文件
+            flag_path = 'E:\\TradingSystem\\reload_config.flag'
+            with open(flag_path, 'w', encoding='utf-8') as f:
+                f.write(str(datetime.now().isoformat()))
+            
+            print(f"[WEB] 配置已重新加载 - 交易品种: {config.get('trading_pair', 'N/A')}")
+            return jsonify({'ok': True, 'message': f'配置已重新加载，交易品种: {config.get("trading_pair")}'})
+        else:
+            return jsonify({'error': 'config.json not found'})
+    except Exception as e:
+        return jsonify({'error': str(e)})
 
 @app.route('/get_logs')
 def get_logs():
@@ -735,15 +828,17 @@ def save_log():
     global chat_history
     data = request.json
     chat_history.append({'type': data.get('type', 'log'), 'message': data.get('message', ''), 'timestamp': datetime.now().isoformat()})
-    try:
-        with open(SESSION_LOG_FILE, 'a', encoding='utf-8') as f:
-            if data.get('type') == 'chat':
-                f.write(f"[{datetime.now()}] {data.get('sender')}: {data.get('message')}\n")
-            else:
-                f.write(f"[{datetime.now()}] {data.get('message')}\n")
-    except:
-        pass
+    # Note: Chat logs are now only stored in memory (chat_history) for the web interface
+    # The actual log file (autogpt.log) is rotated to logs folder on exit
+    # This prevents duplicate chat content in the logs folder
     return jsonify({'ok': True})
+
+# 处理浏览器常见但未定义的资源请求
+@app.route('/apple-touch-icon.png')
+@app.route('/apple-touch-icon-precomposed.png')
+@app.route('/robots.txt')
+def handle_common_resources():
+    return '', 204
 
 if __name__ == '__main__':
     print("Starting on port 5000...")
